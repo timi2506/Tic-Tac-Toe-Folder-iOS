@@ -1,3 +1,5 @@
+**Requires iOS 14 or higher**
+
 Simple TicTacToe-App Made with ChatGPT but with a twist...
 
 
