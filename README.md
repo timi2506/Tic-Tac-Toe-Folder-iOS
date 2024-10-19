@@ -8,4 +8,4 @@ Click the Title three times to open a secret Folder hidden from everyone - the p
 
 macOS Version: https://github.com/timi2506/TicTacToe-Folder/
 
-Credits to @xezrunner (github.com/xezrunner twitter.com/xezrunner) and @pinball3d (github.com/pinball3d twitter.com/AndrewSmiley20) for helping me fix saving the files
+Credits to @xezrunner (https://github.com/xezrunner https://twitter.com/xezrunner) and @pinball3d (https://github.com/pinball3d https://twitter.com/AndrewSmiley20) for helping me fix saving the files
