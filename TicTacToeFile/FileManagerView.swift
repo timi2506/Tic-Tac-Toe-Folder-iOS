@@ -12,7 +12,7 @@ struct FileManagerView: View {
     @State private var temporaryFileURL: URL?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
-
+    
     // Store a dictionary to map the encrypted file names to the original ones
     @State private var fileMapping: [String: String] = [:] // [encryptedFileName: originalFileName]
 
@@ -102,11 +102,7 @@ struct FileManagerView: View {
                 switch result {
                 case .success(let urls):
                     if let selectedFileURL = urls.first {
-                        if selectedFileURL.startAccessingSecurityScopedResource() {
-                            saveFile(url: selectedFileURL)
-                            loadFiles()
-                            selectedFileURL.stopAccessingSecurityScopedResource()
-                        }
+                        handleFile(selectedFileURL)
                     }
                 case .failure(let error):
                     print("Error picking file: \(error)")
@@ -129,16 +125,26 @@ struct FileManagerView: View {
                     // Load the dropped item
                     provider.loadItem(forTypeIdentifier: UTType.item.identifier) { (item, error) in
                         if let url = item as? URL {
-                            // Handle the dropped file
-                            DispatchQueue.main.async {
-                                self.saveFile(url: url)
-                                self.loadFiles()
-                            }
+                            handleFile(url)
                         }
                     }
                 }
                 return true
             }
+    }
+    
+    private func handleFile(_ url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+            print("Could not access the security scoped resource.")
+            return
+        }
+        
+        // Call saveFile after successfully accessing the resource
+        saveFile(url: url)
+        loadFiles()
+        
+        // Stop accessing the resource
+        url.stopAccessingSecurityScopedResource()
     }
 
     // Encrypt the file and map the original name to the encrypted one
@@ -242,6 +248,7 @@ struct FileManagerView: View {
                 files.removeAll { $0 == fileToDelete }
                 fileMapping.removeValue(forKey: fileToDelete)
                 saveMapping() // Update the mapping
+                loadFiles() // Refresh the file list
             }
         } catch {
             print("Error deleting file: \(error)")
@@ -254,8 +261,10 @@ struct FileManagerView: View {
         let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         let fileURL = documentDirectory?.appendingPathComponent(fileToRename)
         
+        let newFileName = newFileName.isEmpty ? fileMapping[fileToRename] ?? fileToRename : newFileName
+        let newFileURL = documentDirectory?.appendingPathComponent(newFileName)
+        
         do {
-            let newFileURL = documentDirectory?.appendingPathComponent(newFileName)
             if let fileURL = fileURL, let newFileURL = newFileURL {
                 try FileManager.default.moveItem(at: fileURL, to: newFileURL)
                 if let originalName = fileMapping[fileToRename] {
@@ -270,3 +279,4 @@ struct FileManagerView: View {
         }
     }
 }
+
