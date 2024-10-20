@@ -207,6 +207,7 @@ struct FileManagerView: View {
         showShareSheet = true
     }
     
+    
     // Decrypt or copy the file to a temporary location with the original name
     private func copyToTemporaryLocation(encryptedFileName: String, originalFileName: String) -> URL {
         let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -280,3 +281,16 @@ struct FileManagerView: View {
     }
 }
 
+struct ShareSheet: UIViewControllerRepresentable {
+    var activityItems: [Any]
+    var applicationActivities: [UIActivity]? = nil
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        // No update needed
+    }
+}
