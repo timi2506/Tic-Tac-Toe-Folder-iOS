@@ -259,28 +259,12 @@ struct FileManagerView: View {
     private func renameFile() {
         guard let fileToRename = selectedFile else { return }
         
-        let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let fileURL = documentDirectory?.appendingPathComponent(fileToRename)
-        
-        let newFileName = newFileName.isEmpty ? fileMapping[fileToRename] ?? fileToRename : newFileName
-        let newFileURL = documentDirectory?.appendingPathComponent(newFileName)
-        
-        do {
-            if let fileURL = fileURL, let newFileURL = newFileURL {
-                try FileManager.default.moveItem(at: fileURL, to: newFileURL)
-                if let originalName = fileMapping[fileToRename] {
-                    fileMapping[newFileName] = originalName
-                    fileMapping.removeValue(forKey: fileToRename)
-                    saveMapping() // Update the mapping
-                }
-                loadFiles() // Refresh the file list
-            }
-        } catch {
-            print("Error renaming file: \(error)")
-        }
+        // Only update the fileMapping, keeping the encrypted file unchanged
+        fileMapping[fileToRename] = newFileName
+        saveMapping()
+        loadFiles()
     }
 }
-
 struct ShareSheet: UIViewControllerRepresentable {
     var activityItems: [Any]
     var applicationActivities: [UIActivity]? = nil
