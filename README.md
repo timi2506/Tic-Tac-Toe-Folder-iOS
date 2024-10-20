@@ -2,6 +2,7 @@
 
 Simple TicTacToe-App Made with ChatGPT but with a twist...
 
+Note: when the file picker doesnt work, use share sheet to share a file into the app, its likely caused by your sideloading method.
 
 
 https://github.com/user-attachments/assets/707ca371-c80f-40dc-9da5-85e05d719841
