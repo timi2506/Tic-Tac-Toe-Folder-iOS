@@ -1,7 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import QuickLook
-import CryptoKit
 
 struct FileManagerView: View {
     @State private var files: [String] = []
@@ -13,100 +12,133 @@ struct FileManagerView: View {
     @State private var temporaryFileURL: URL?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
-    
+
     // Store a dictionary to map the encrypted file names to the original ones
     @State private var fileMapping: [String: String] = [:] // [encryptedFileName: originalFileName]
-    
+
     var body: some View {
         NavigationView {
-            List {
-                if files.isEmpty {
-                    Text("No file, upload one by tapping the folder icon.")
-                } else {
-                    ForEach(files, id: \.self) { file in
-                        // Display original file name if available
-                        let originalFileName = fileMapping[file] ?? file
-                        Text(originalFileName) // Show original file name
-                            .onTapGesture {
-                                selectedFile = file
-                                showActionSheet = true
+            VStack {
+                List {
+                    if files.isEmpty {
+                        Text("No file, upload one by tapping the folder icon.")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.clear)
+                    } else {
+                        ForEach(files, id: \.self) { file in
+                            let originalFileName = fileMapping[file] ?? file
+                            Text(originalFileName)
+                                .onTapGesture {
+                                    selectedFile = file
+                                    showActionSheet = true
+                                }
+                        }
+                    }
+                }
+                .navigationTitle("File Manager")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: { isPickerPresented = true }) {
+                            Image(systemName: "folder.badge.plus")
+                        }
+                    }
+                }
+                .actionSheet(isPresented: $showActionSheet) {
+                    ActionSheet(
+                        title: Text("Choose an action"),
+                        message: Text("Select an option for \(fileMapping[selectedFile ?? "file"] ?? "file")"),
+                        buttons: [
+                            .default(Text("QuickLook")) { quickLookFile() },
+                            .default(Text("Share")) { shareFile() },
+                            .default(Text("Rename")) {
+                                newFileName = fileMapping[selectedFile ?? ""] ?? selectedFile ?? ""
+                                showRenameSheet = true
+                            },
+                            .destructive(Text("Delete")) { deleteFile() },
+                            .cancel()
+                        ]
+                    )
+                }
+                .sheet(isPresented: $showRenameSheet) {
+                    VStack(spacing: 20) {
+                        Text("Rename File")
+                            .font(.headline)
+                        TextField("New File Name", text: $newFileName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding()
+                        HStack {
+                            Button("Cancel") {
+                                showRenameSheet = false
                             }
-                    }
-                }
-            }
-            .navigationTitle("File Manager")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { isPickerPresented = true }) {
-                        Image(systemName: "folder.badge.plus")
-                    }
-                }
-            }
-            .actionSheet(isPresented: $showActionSheet) {
-                ActionSheet(
-                    title: Text("Choose an action"),
-                    message: Text("Select an option for \(fileMapping[selectedFile ?? "file"] ?? "file")"),
-                    buttons: [
-                        .default(Text("QuickLook")) { quickLookFile() },
-                        .default(Text("Share")) { shareFile() },
-                        .default(Text("Rename")) {
-                            newFileName = fileMapping[selectedFile ?? ""] ?? selectedFile ?? ""
-                            showRenameSheet = true
-                        },
-                        .destructive(Text("Delete")) { deleteFile() },
-                        .cancel()
-                    ]
-                )
-            }
-            .sheet(isPresented: $showRenameSheet) {
-                VStack(spacing: 20) {
-                    Text("Rename File")
-                        .font(.headline)
-                    TextField("New File Name", text: $newFileName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .foregroundColor(.red)
+                            Spacer()
+                            Button("Save") {
+                                renameFile()
+                                showRenameSheet = false
+                            }
+                            .foregroundColor(.blue)
+                        }
                         .padding()
-                    HStack {
-                        Button("Cancel") {
-                            showRenameSheet = false
-                        }
-                        .foregroundColor(.red)
-                        Spacer()
-                        Button("Save") {
-                            renameFile()
-                            showRenameSheet = false
-                        }
-                        .foregroundColor(.blue)
                     }
                     .padding()
                 }
-                .padding()
+                .quickLookPreview($temporaryFileURL)
+                .sheet(isPresented: $showShareSheet) {
+                    ShareSheet(activityItems: shareItems)
+                }
+                
+                // Drop area at the bottom of the screen
+                dropArea
+                    .padding()
             }
-            .quickLookPreview($temporaryFileURL)
-            .sheet(isPresented: $showShareSheet) {
-                ShareSheet(activityItems: shareItems)
+            .onAppear {
+                loadFiles()
+            }
+            .fileImporter(
+                isPresented: $isPickerPresented,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let selectedFileURL = urls.first {
+                        if selectedFileURL.startAccessingSecurityScopedResource() {
+                            saveFile(url: selectedFileURL)
+                            loadFiles()
+                            selectedFileURL.stopAccessingSecurityScopedResource()
+                        }
+                    }
+                case .failure(let error):
+                    print("Error picking file: \(error)")
+                }
             }
         }
-        .onAppear {
-            loadFiles()
-        }
-        .fileImporter(
-            isPresented: $isPickerPresented,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let selectedFileURL = urls.first {
-                    if selectedFileURL.startAccessingSecurityScopedResource() {
-                        saveFile(url: selectedFileURL)
-                        loadFiles()
-                        selectedFileURL.stopAccessingSecurityScopedResource()
+    }
+    
+    private var dropArea: some View {
+        Rectangle()
+            .fill(Color.gray.opacity(0.2))
+            .frame(height: 100)
+            .cornerRadius(10) // Add rounded corners
+            .overlay(
+                Text("Drop files here")
+                    .foregroundColor(Color(UIColor.label)) // Adjust color based on light/dark mode
+            )
+            .onDrop(of: [UTType.item, UTType.application], isTargeted: nil) { providers in
+                for provider in providers {
+                    // Load the dropped item
+                    provider.loadItem(forTypeIdentifier: UTType.item.identifier) { (item, error) in
+                        if let url = item as? URL {
+                            // Handle the dropped file
+                            DispatchQueue.main.async {
+                                self.saveFile(url: url)
+                                self.loadFiles()
+                            }
+                        }
                     }
                 }
-            case .failure(let error):
-                print("Error picking file: \(error)")
+                return true
             }
-        }
     }
 
     // Encrypt the file and map the original name to the encrypted one
@@ -198,29 +230,43 @@ struct FileManagerView: View {
         return temporaryFileURL
     }
     
-    // Other methods (deleteFile, renameFile) remain unchanged
-    private func renameFile() {
-        guard let file = selectedFile else { return }
-
-        // Update the mapping to reflect the new original name, keeping the encrypted file name the same
-        fileMapping[file] = newFileName
-        saveMapping()
-        loadFiles()
-    }
-
     private func deleteFile() {
-        guard let file = selectedFile else { return }
+        guard let fileToDelete = selectedFile else { return }
+        
         let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        guard let fileURL = documentDirectory?.appendingPathComponent(file) else { return }
+        let fileURL = documentDirectory?.appendingPathComponent(fileToDelete)
         
         do {
-            try FileManager.default.removeItem(at: fileURL)
-            // Remove from mapping
-            fileMapping.removeValue(forKey: file)
-            saveMapping()
-            loadFiles()
+            if let fileURL = fileURL {
+                try FileManager.default.removeItem(at: fileURL)
+                files.removeAll { $0 == fileToDelete }
+                fileMapping.removeValue(forKey: fileToDelete)
+                saveMapping() // Update the mapping
+            }
         } catch {
             print("Error deleting file: \(error)")
+        }
+    }
+    
+    private func renameFile() {
+        guard let fileToRename = selectedFile else { return }
+        
+        let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let fileURL = documentDirectory?.appendingPathComponent(fileToRename)
+        
+        do {
+            let newFileURL = documentDirectory?.appendingPathComponent(newFileName)
+            if let fileURL = fileURL, let newFileURL = newFileURL {
+                try FileManager.default.moveItem(at: fileURL, to: newFileURL)
+                if let originalName = fileMapping[fileToRename] {
+                    fileMapping[newFileName] = originalName
+                    fileMapping.removeValue(forKey: fileToRename)
+                    saveMapping() // Update the mapping
+                }
+                loadFiles() // Refresh the file list
+            }
+        } catch {
+            print("Error renaming file: \(error)")
         }
     }
 }
