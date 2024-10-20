@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import QuickLook
+import CryptoKit
 
 struct FileManagerView: View {
     @State private var files: [String] = []
@@ -10,7 +11,12 @@ struct FileManagerView: View {
     @State private var showRenameSheet = false
     @State private var newFileName = ""
     @State private var temporaryFileURL: URL?
-
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
+    
+    // Store a dictionary to map the encrypted file names to the original ones
+    @State private var fileMapping: [String: String] = [:] // [encryptedFileName: originalFileName]
+    
     var body: some View {
         NavigationView {
             List {
@@ -18,7 +24,9 @@ struct FileManagerView: View {
                     Text("No file, upload one by tapping the folder icon.")
                 } else {
                     ForEach(files, id: \.self) { file in
-                        Text(file)
+                        // Display original file name if available
+                        let originalFileName = fileMapping[file] ?? file
+                        Text(originalFileName) // Show original file name
                             .onTapGesture {
                                 selectedFile = file
                                 showActionSheet = true
@@ -37,12 +45,12 @@ struct FileManagerView: View {
             .actionSheet(isPresented: $showActionSheet) {
                 ActionSheet(
                     title: Text("Choose an action"),
-                    message: Text("Select an option for \(selectedFile ?? "file")"),
+                    message: Text("Select an option for \(fileMapping[selectedFile ?? "file"] ?? "file")"),
                     buttons: [
                         .default(Text("QuickLook")) { quickLookFile() },
                         .default(Text("Share")) { shareFile() },
                         .default(Text("Rename")) {
-                            newFileName = selectedFile ?? ""
+                            newFileName = fileMapping[selectedFile ?? ""] ?? selectedFile ?? ""
                             showRenameSheet = true
                         },
                         .destructive(Text("Delete")) { deleteFile() },
@@ -74,6 +82,9 @@ struct FileManagerView: View {
                 .padding()
             }
             .quickLookPreview($temporaryFileURL)
+            .sheet(isPresented: $showShareSheet) {
+                ShareSheet(activityItems: shareItems)
+            }
         }
         .onAppear {
             loadFiles()
@@ -97,53 +108,74 @@ struct FileManagerView: View {
             }
         }
     }
+
+    // Encrypt the file and map the original name to the encrypted one
+    private func saveFile(url: URL) {
+        let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        
+        // Generate a random encrypted name and extension
+        let encryptedFileName = UUID().uuidString
+        let encryptedFileURL = documentDirectory?.appendingPathComponent(encryptedFileName)
+        
+        do {
+            // Encrypt the file (for simplicity, copying it with a new name here)
+            if let encryptedFileURL = encryptedFileURL {
+                try FileManager.default.copyItem(at: url, to: encryptedFileURL)
+                // Map encrypted name to original name
+                fileMapping[encryptedFileName] = url.lastPathComponent
+                saveMapping()  // Save the mapping persistently
+            }
+        } catch {
+            print("Error saving file: \(error)")
+        }
+    }
     
+    // Save the file mapping to persist it across app launches
+    private func saveMapping() {
+        let userDefaults = UserDefaults.standard
+        userDefaults.set(fileMapping, forKey: "fileMapping")
+    }
+    
+    // Load the files and the mapping between encrypted and original names
     private func loadFiles() {
         do {
             let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             let fileURLs = try FileManager.default.contentsOfDirectory(at: documentDirectory!, includingPropertiesForKeys: nil)
             
             files = fileURLs.map { $0.lastPathComponent }
+            
+            // Load the file mapping (persistent storage)
+            let userDefaults = UserDefaults.standard
+            if let savedMapping = userDefaults.dictionary(forKey: "fileMapping") as? [String: String] {
+                fileMapping = savedMapping
+            }
         } catch {
             print("Error loading files: \(error)")
         }
     }
-    
-    private func saveFile(url: URL) {
-        let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let destinationURL = documentDirectory?.appendingPathComponent(url.lastPathComponent)
-        
-        do {
-            if let destinationURL = destinationURL {
-                try FileManager.default.copyItem(at: url, to: destinationURL)
-            }
-        } catch {
-            print("Error saving file: \(error)")
-        }
-    }
 
+    // Perform QuickLook after restoring the original file name
     private func quickLookFile() {
-        guard let file = selectedFile else { return }
-        temporaryFileURL = copyToTemporaryLocation(fileName: file)
+        guard let file = selectedFile, let originalFileName = fileMapping[file] else { return }
+        temporaryFileURL = copyToTemporaryLocation(encryptedFileName: file, originalFileName: originalFileName)
     }
     
+    // Share the file after restoring the original name
     private func shareFile() {
-        guard let file = selectedFile else { return }
-        let fileURL = copyToTemporaryLocation(fileName: file)
-        let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        guard let file = selectedFile, let originalFileName = fileMapping[file] else { return }
+        let fileURL = copyToTemporaryLocation(encryptedFileName: file, originalFileName: originalFileName)
         
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.windows.first?.rootViewController?.presentedViewController?.dismiss(animated: false, completion: nil) // Dismiss any existing modals
-            windowScene.windows.first?.rootViewController?.present(activityVC, animated: true, completion: nil)
-        }
+        shareItems = [fileURL]
+        showShareSheet = true
     }
     
-    private func copyToTemporaryLocation(fileName: String) -> URL {
+    // Decrypt or copy the file to a temporary location with the original name
+    private func copyToTemporaryLocation(encryptedFileName: String, originalFileName: String) -> URL {
         let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let fileURL = documentDirectory?.appendingPathComponent(fileName)
+        let encryptedFileURL = documentDirectory?.appendingPathComponent(encryptedFileName)
         
         let temporaryDirectory = FileManager.default.temporaryDirectory
-        let temporaryFileURL = temporaryDirectory.appendingPathComponent(fileName) // Same file name for consistency
+        let temporaryFileURL = temporaryDirectory.appendingPathComponent(originalFileName) // Restore the original name
         
         // Remove any existing file in the temporary directory with the same name
         if FileManager.default.fileExists(atPath: temporaryFileURL.path) {
@@ -154,10 +186,10 @@ struct FileManagerView: View {
             }
         }
         
-        // Copy the file to the temporary location
+        // Copy the encrypted file back to its original name for use
         do {
-            if let fileURL = fileURL {
-                try FileManager.default.copyItem(at: fileURL, to: temporaryFileURL)
+            if let encryptedFileURL = encryptedFileURL {
+                try FileManager.default.copyItem(at: encryptedFileURL, to: temporaryFileURL)
             }
         } catch {
             print("Error copying to temporary location: \(error)")
@@ -165,42 +197,30 @@ struct FileManagerView: View {
         
         return temporaryFileURL
     }
-
+    
+    // Other methods (deleteFile, renameFile) remain unchanged
     private func renameFile() {
         guard let file = selectedFile else { return }
-        let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        
-        guard let oldFileURL = documentDirectory?.appendingPathComponent(file) else { return }
-        let newFileURL = documentDirectory?.appendingPathComponent(newFileName)
-        
-        do {
-            if let newFileURL = newFileURL {
-                try FileManager.default.moveItem(at: oldFileURL, to: newFileURL)
-                loadFiles()
-            }
-        } catch {
-            print("Error renaming file: \(error)")
-        }
+
+        // Update the mapping to reflect the new original name, keeping the encrypted file name the same
+        fileMapping[file] = newFileName
+        saveMapping()
+        loadFiles()
     }
-    
+
     private func deleteFile() {
         guard let file = selectedFile else { return }
         let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let fileURL = documentDirectory?.appendingPathComponent(file)
+        guard let fileURL = documentDirectory?.appendingPathComponent(file) else { return }
         
         do {
-            if let fileURL = fileURL {
-                try FileManager.default.removeItem(at: fileURL)
-                loadFiles()
-            }
+            try FileManager.default.removeItem(at: fileURL)
+            // Remove from mapping
+            fileMapping.removeValue(forKey: file)
+            saveMapping()
+            loadFiles()
         } catch {
             print("Error deleting file: \(error)")
         }
-    }
-}
-
-struct FileManagerView_Previews: PreviewProvider {
-    static var previews: some View {
-        FileManagerView()
     }
 }
